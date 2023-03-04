@@ -5,169 +5,190 @@
 
 Reverse Engineered ChatGPT API by OpenAI. Extensible for chatbots etc.
 
-Connect with me on [Linkedin](https://www.linkedin.com/in/acheong08/) to support this project. (Not open for commercial opportunities yet. Too busy)
-<br><br>
-You can also follow me on [Twitter](https://twitter.com/GodlyIgnorance) to stay up to date.
+> ## Support my work
+> Make a pull request and fix my bad code.
 
-> ## [BingGPT](https://github.com/acheong08/BingGPT) is out! It's just like ChatGPT but with live internet access. Reverse engineered from the pre-release by Microsoft.
-> You need to be waitlisted by Microsoft/Bing
-
+# Installation
+`pip3 install --upgrade revChatGPT`
 
 <details>
+
 <summary>
 
-# V1 Browser automation
-
-Browser is required on startup to fetch cookies. Breaks terms of service.
-
-> ## Working version
+# V1 Standard ChatGPT
+> Uses `chat.openai.com`
+> - Free
 
 </summary>
 
-## Installation
-`pip3 install revChatGPT`
+> Proxy server Rate limit: 25 requests per 10 seconds (per IP)
+>
+> OpenAI rate limit: 50 requests per hour on free accounts. You can get around it with multi-account cycling
+>
+> Plus accounts has around 150 requests per hour rate limit
 
 ## Configuration
 
 1. Create account on [OpenAI's ChatGPT](https://chat.openai.com/)
 2. Save your email and password
 
-Required configuration:
-
+### Authentication method: (Choose 1)
+#### - Email/Password
+Not supported for Google/Microsoft accounts
 ```json
 {
-  "email": "<your email>",
+  "email": "email",
   "password": "your password"
 }
 ```
+#### - Session token
+Comes from cookies on chat.openai.com as "__Secure-next-auth.session-token"
 
-Optional configuration:
+```json
+{
+  "session_token": "..."
+}
+```
+#### - Access token
+https://chat.openai.com/api/auth/session
+```json
+{
+  "access_token": "<access_token>"
+}
+```
+
+#### - Optional configuration:
 
 ```json
 {
   "conversation_id": "UUID...",
   "parent_id": "UUID...",
   "proxy": "...",
+  "paid": false
 }
 ```
 
 3. Save this as `$HOME/.config/revChatGPT/config.json`
+4. If you are using Windows, you will need to create an environment variable named ```HOME``` and set it to your home profile for the script to be able to locate the config.json file.
 
 ## Usage
 
 ### Command line
 
-`python3 -m revChatGPT.Unofficial`
+`python3 -m revChatGPT.V1`
 
 ```
-!help - Show this message
-!reset - Forget the current conversation
-!refresh - Refresh the session authentication
-!config - Show the current configuration
-!rollback x - Rollback the conversation (x being the number of messages to rollback)
-!exit - Exit this program
+        ChatGPT - A command-line interface to OpenAI's ChatGPT (https://chat.openai.com/chat)
+        Repo: github.com/acheong08/ChatGPT
+
+Type '!help' to show a full list of commands
+
+Logging in...
+
+You:
+(Press Esc followed by Enter to finish)
 ```
 
-### Developer
+The command line interface supports multi-line inputs and allows navigation using arrow keys. Besides, you can also edit history inputs by arrow keys when the prompt is empty. It also completes your input if it finds matched previous prompts. To finish input, press `Esc` and then `Enter` as solely `Enter` itself is used for creating new line in multi-line mode.
+
+Set the environment variable `NO_COLOR` to `true` to disable color output.
+
+
+### Developer API
+
+#### Basic example (streamed):
+```python
+from revChatGPT.V1 import Chatbot
+
+chatbot = Chatbot(config={
+  "email": "<your email>",
+  "password": "<your password>"
+})
+
+print("Chatbot: ")
+prev_text = ""
+for data in chatbot.ask(
+    "Hello world",
+):
+    message = data["message"][len(prev_text) :]
+    print(message, end="", flush=True)
+    prev_text = data["message"]
+print()
+```
+
+#### Basic example (single result):
 
 ```python
-from revChatGPT.Unofficial import Chatbot
+from revChatGPT.V1 import Chatbot
 
-chatbot = Chatbot({
+chatbot = Chatbot(config={
   "email": "<your email>",
-  "password": "your password"
-}, conversation_id=None, parent_id=None) # You can start a custom conversation
+  "password": "<your password>"
+})
 
-response = chatbot.ask("Prompt", conversation_id=None, parent_id=None) # You can specify custom conversation and parent ids. Otherwise it uses the saved conversation (yes. conversations are automatically saved)
+prompt = "how many beaches does portugal have?"
+response = ""
+
+for data in chatbot.ask(
+  prompt
+):
+    response = data["message"]
 
 print(response)
-# {
-#   "message": message,
-#   "conversation_id": self.conversation_id,
-#   "parent_id": self.parent_id,
-# }
 ```
+#### All API methods
+Refer to the [wiki](https://github.com/acheong08/ChatGPT/wiki/V1) for advanced developer usage.
 
-Refer to [wiki](https://github.com/acheong08/ChatGPT/wiki/V1---Outdated-version) for advanced developer usage
+</details>
+
 
 <details>
 
 <summary>
 
-### API
-`python3 -m revChatGPT.GPTserver`
+# V3 Official Chat API
+> Recently released by OpenAI
+> - Costs money
 
 </summary>
 
-HTTP POST request:
+Get API key from https://platform.openai.com/account/api-keys
 
-```json
-{
-  "session_token": "eyJhbGciOiJkaXIiL...",
-  "prompt": "Your prompt here"
-}
+## Command line
+`python3 -m revChatGPT.V3 --api_key <api_key>`
+
 ```
 
-Optional:
+    ChatGPT - Official ChatGPT API
+    Repo: github.com/acheong08/ChatGPT
 
-```json
-{
-  "session_token": "eyJhbGciOiJkaXIiL...",
-  "prompt": "Your prompt here",
-  "conversation_id": "UUID...",
-  "parent_id": "UUID..."
-}
+    Type '!help' to show a full list of commands
+    Press enter twice to submit your question.
+
+    !help - Display this message
+    !rollback n - Rollback the conversation by n messages
+    !exit - Quit chat
 ```
 
-- Rate limiting is enabled by default to prevent simultaneous requests
+## Developer API
+
+### Basic example
+```python
+from revChatGPT.V3 import Chatbot
+chatbot = Chatbot(api_key="<api_key>")
+chatbot.ask("Hello world")
+```
+
+### Streaming example
+```python
+from revChatGPT.V3 import Chatbot
+chatbot = Chatbot(api_key="<api_key>")
+for data in chatbot.ask("Hello world"):
+    print(data, end="", flush=True)
+```
 
 </details>
 
-</details>
-
-
-<details>
-<summary>
-
-# V2: Base model
-
-> ## Update 2023/02/10 This model has been removed by OpenAI. Please use V1 as detailed above
-
-Free, browserless, and without rate limits. Uses an outdated base model for ChatGPT.
-
-</summary>
-
-## Installation
-`pip3 install revChatGPT`
-
-## Setup
-
-1. Create account on [OpenAI](https://platform.openai.com/)
-2. Go to https://platform.openai.com/account/api-keys
-3. Copy API key
-
-## Usage
-
-### Command line
-`python3 -m revChatGPT.Official --api_key API_KEY --stream`
-
-<details>
-<summary>
-
-### Developer
-</summary>
-
-Both Async and Sync are available. You can also stream responses via a generator. Read example code to learn more
-
-#### Example code
-
-You can find it [here](https://github.com/acheong08/ChatGPT/blob/main/src/revChatGPT/Official.py#L292-L408)
-
-#### Further Documentation
-You can find it [wiki](https://github.com/acheong08/ChatGPT/wiki/revChatGPT)
-
-</details>
-</details>
 
 
 # Awesome ChatGPT
@@ -178,7 +199,7 @@ If you have a cool project you want added to the list, open an issue.
 
 # Disclaimers
 
-This is not an official OpenAI product. This is a personal project and is not affiliated with OpenAI in any way. Don't sue me
+This is not an official OpenAI product. This is a personal project and is not affiliated with OpenAI in any way. Don't sue me.
 
 # Credits
 

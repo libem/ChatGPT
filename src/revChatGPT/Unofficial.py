@@ -2,6 +2,8 @@ import json
 import logging
 import re
 import uuid
+from os import getenv
+from os.path import exists
 from time import sleep
 
 import tls_client
@@ -65,7 +67,7 @@ class Chatbot:
                 raise Exception("Password must be a string!")
             self.email = config["email"]
             self.password = config["password"]
-            if "isMicrosoftLogin" in config and config["isMicrosoftLogin"] == True:
+            if "isMicrosoftLogin" in config and config["isMicrosoftLogin"]:
                 self.isMicrosoftLogin = True
                 self.__microsoft_login()
             else:
@@ -123,9 +125,9 @@ class Chatbot:
             self.config["session_token"] = session_token
         self.__retry_refresh()
         self.__map_conversations()
-        if conversation_id == None:
+        if conversation_id is None:
             conversation_id = self.conversation_id
-        if parent_id == None:
+        if parent_id is None:
             parent_id = (
                 self.parent_id
                 if conversation_id == self.conversation_id
@@ -142,7 +144,9 @@ class Chatbot:
             ],
             "conversation_id": conversation_id,
             "parent_message_id": parent_id or str(uuid.uuid4()),
-            "model": "text-davinci-002-render",
+            "model": "text-davinci-002-render"
+            if self.config.get("paid") is not True
+            else "text-davinci-002-render-paid",
         }
         new_conv = data["conversation_id"] is None
         self.conversation_id_prev_queue.append(
@@ -150,7 +154,7 @@ class Chatbot:
         )  # for rollback
         self.parent_id_prev_queue.append(data["parent_message_id"])
         response = self.session.post(
-            url=BASE_URL + "backend-api/conversation",
+            url=f"{BASE_URL}backend-api/conversation",
             data=json.dumps(data),
             timeout_seconds=180,
         )
@@ -167,30 +171,28 @@ class Chatbot:
             except Exception as exc:
                 print("Incorrect response from OpenAI API")
                 raise Exception("Incorrect response from OpenAI API") from exc
-            # Check if it is JSON
-            if response.startswith("{"):
-                response = json.loads(response)
-                self.parent_id = response["message"]["id"]
-                self.conversation_id = response["conversation_id"]
-                message = response["message"]["content"]["parts"][0]
-                res = {
-                    "message": message,
-                    "conversation_id": self.conversation_id,
-                    "parent_id": self.parent_id,
-                }
-                if gen_title and new_conv:
-                    try:
-                        title = self.__gen_title(
-                            self.conversation_id,
-                            self.parent_id,
-                        )["title"]
-                    except Exception as exc:
-                        split = prompt.split(" ")
-                        title = " ".join(split[:3]) + ("..." if len(split) > 3 else "")
-                    res["title"] = title
-                return res
-            else:
+            if not response.startswith("{"):
                 return None
+            response = json.loads(response)
+            self.parent_id = response["message"]["id"]
+            self.conversation_id = response["conversation_id"]
+            message = response["message"]["content"]["parts"][0]
+            res = {
+                "message": message,
+                "conversation_id": self.conversation_id,
+                "parent_id": self.parent_id,
+            }
+            if gen_title and new_conv:
+                try:
+                    title = self.__gen_title(
+                        self.conversation_id,
+                        self.parent_id,
+                    )["title"]
+                except Exception as exc:
+                    split = prompt.split(" ")
+                    title = " ".join(split[:3]) + ("..." if len(split) > 3 else "")
+                res["title"] = title
+            return res
 
     def __check_response(self, response):
         if response.status_code != 200:
@@ -203,7 +205,7 @@ class Chatbot:
         :param offset: Integer
         :param limit: Integer
         """
-        url = BASE_URL + f"backend-api/conversations?offset={offset}&limit={limit}"
+        url = f"{BASE_URL}backend-api/conversations?offset={offset}&limit={limit}"
         response = self.session.get(url)
         self.__check_response(response)
         data = json.loads(response.text)
@@ -214,21 +216,25 @@ class Chatbot:
         Get message history
         :param id: UUID of conversation
         """
-        url = BASE_URL + f"backend-api/conversation/{id}"
+        url = f"{BASE_URL}backend-api/conversation/{id}"
         response = self.session.get(url)
         self.__check_response(response)
-        data = json.loads(response.text)
-        return data
+        return json.loads(response.text)
 
     def __gen_title(self, id, message_id):
         """
         Generate title for conversation
         """
-        url = BASE_URL + f"backend-api/conversation/gen_title/{id}"
+        url = f"{BASE_URL}backend-api/conversation/gen_title/{id}"
         response = self.session.post(
             url,
             data=json.dumps(
-                {"message_id": message_id, "model": "text-davinci-002-render"},
+                {
+                    "message_id": message_id,
+                    "model": "text-davinci-002-render"
+                    if self.config.get("paid") is not True
+                    else "text-davinci-002-render-paid",
+                },
             ),
         )
         self.__check_response(response)
@@ -241,7 +247,7 @@ class Chatbot:
         :param id: UUID of conversation
         :param title: String
         """
-        url = BASE_URL + f"backend-api/conversation/{id}"
+        url = f"{BASE_URL}backend-api/conversation/{id}"
         response = self.session.patch(url, data=f'{{"title": "{title}"}}')
         self.__check_response(response)
 
@@ -250,7 +256,7 @@ class Chatbot:
         Delete conversation
         :param id: UUID of conversation
         """
-        url = BASE_URL + f"backend-api/conversation/{id}"
+        url = f"{BASE_URL}backend-api/conversation/{id}"
         response = self.session.patch(url, data='{"is_visible": false}')
         self.__check_response(response)
 
@@ -258,7 +264,7 @@ class Chatbot:
         """
         Delete all conversations
         """
-        url = BASE_URL + "backend-api/conversations"
+        url = f"{BASE_URL}backend-api/conversations"
         response = self.session.patch(url, data='{"is_visible": false}')
         self.__check_response(response)
 
@@ -276,7 +282,7 @@ class Chatbot:
             )
             self.session_token = session_token
             self.config["session_token"] = session_token
-        url = BASE_URL + "api/auth/session"
+        url = f"{BASE_URL}api/auth/session"
         response = self.session.get(url, timeout_seconds=180)
         if response.status_code == 403:
             self.__get_cf_cookies()
@@ -330,9 +336,11 @@ class Chatbot:
         try:
             # Open the browser
             self.cf_cookie_found = False
+            self.puid_cookie_found = False
             self.session_cookie_found = False
             self.agent_found = False
             self.cf_clearance = None
+            self.puid_cookie = None
             self.user_agent = None
             options = self.__get_ChromeOptions()
             print("Spawning browser...")
@@ -443,7 +451,7 @@ class Chatbot:
             )
             while not self.session_cookie_found:
                 sleep(5)
-            print(self.GREEN + "Login successful." + self.ENDCOLOR)
+            print(f"{self.GREEN}Login successful.{self.ENDCOLOR}")
         finally:
             # Close the browser
             if driver is not None:
@@ -460,9 +468,11 @@ class Chatbot:
         driver = None
         try:
             self.cf_cookie_found = False
+            self.puid_cookie_found = False
             self.session_cookie_found = False
             self.agent_found = False
             self.cf_clearance = None
+            self.puid_cookie = None
             self.user_agent = None
             options = self.__get_ChromeOptions()
             print("Spawning browser...")
@@ -549,7 +559,7 @@ class Chatbot:
             )
             while not self.session_cookie_found:
                 sleep(5)
-            print(self.GREEN + "Login successful." + self.ENDCOLOR)
+            print(f"{self.GREEN}Login successful.{self.ENDCOLOR}")
         finally:
             if driver is not None:
                 # Close the browser
@@ -579,7 +589,9 @@ class Chatbot:
         try:
             self.cf_cookie_found = False
             self.agent_found = False
+            self.puid_cookie_found = False
             self.cf_clearance = None
+            self.puid_cookie = None
             self.user_agent = None
             options = self.__get_ChromeOptions()
             print("Spawning browser...")
@@ -599,7 +611,11 @@ class Chatbot:
                 lambda msg: self.__detect_user_agent(msg),
             )
             driver.get("https://chat.openai.com/chat")
-            while not self.agent_found or not self.cf_cookie_found:
+            while (
+                not self.agent_found
+                or not self.cf_cookie_found
+                or not self.puid_cookie_found
+            ):
                 sleep(5)
         finally:
             # Close the browser
@@ -612,57 +628,75 @@ class Chatbot:
             )
 
     def __detect_cookies(self, message):
-        if "params" in message:
-            if "headers" in message["params"]:
-                if "set-cookie" in message["params"]["headers"]:
-                    # Use regex to get the cookie for cf_clearance=*;
-                    cf_clearance_cookie = re.search(
-                        "cf_clearance=.*?;",
-                        message["params"]["headers"]["set-cookie"],
+        if "params" not in message:
+            return
+        if (
+            "headers" in message["params"]
+            and "set-cookie" in message["params"]["headers"]
+        ):
+            # Use regex to get the cookie for cf_clearance=*;
+            cf_clearance_cookie = re.search(
+                "cf_clearance=.*?;",
+                message["params"]["headers"]["set-cookie"],
+            )
+            # puid_cookie = re.search(
+            #     "_puid=.*?;",
+            #     message["params"]["headers"]["set-cookie"],
+            # )
+            session_cookie = re.search(
+                "__Secure-next-auth.session-token=.*?;",
+                message["params"]["headers"]["set-cookie"],
+            )
+            if cf_clearance_cookie and not self.cf_cookie_found:
+                print("Found Cloudflare Cookie!")
+                # remove the semicolon and 'cf_clearance=' from the string
+                raw_cf_cookie = cf_clearance_cookie[0]
+                self.cf_clearance = raw_cf_cookie.split("=")[1][:-1]
+                if self.verbose:
+                    print(
+                        f"{self.GREEN}Cloudflare Cookie: {self.ENDCOLOR}{self.cf_clearance}",
                     )
-                    session_cookie = re.search(
-                        "__Secure-next-auth.session-token=.*?;",
-                        message["params"]["headers"]["set-cookie"],
+                self.cf_cookie_found = True
+                # if puid_cookie and not self.puid_cookie_found:
+                #     raw_puid_cookie = puid_cookie.group(0)
+                #     self.puid_cookie = raw_puid_cookie.split("=")[1][:-1]
+                #     self.session.cookies.set(
+                #         "_puid",
+                #         self.puid_cookie,
+                #     )
+                #     if self.verbose:
+                #         print(
+                #             self.GREEN
+                #             + "puid Cookie: "
+                #             + self.ENDCOLOR
+                #             + self.puid_cookie,
+                #         )
+                #     self.puid_cookie_found = True
+            if session_cookie and not self.session_cookie_found:
+                print("Found Session Token!")
+                # remove the semicolon and '__Secure-next-auth.session-token=' from the string
+                raw_session_cookie = session_cookie[0]
+                self.session_token = raw_session_cookie.split("=")[1][:-1]
+                self.session.cookies.set(
+                    "__Secure-next-auth.session-token",
+                    self.session_token,
+                )
+                if self.verbose:
+                    print(
+                        f"{self.GREEN}Session Token: {self.ENDCOLOR}{self.session_token}",
                     )
-                    if cf_clearance_cookie and not self.cf_cookie_found:
-                        print("Found Cloudflare Cookie!")
-                        # remove the semicolon and 'cf_clearance=' from the string
-                        raw_cf_cookie = cf_clearance_cookie.group(0)
-                        self.cf_clearance = raw_cf_cookie.split("=")[1][:-1]
-                        if self.verbose:
-                            print(
-                                self.GREEN
-                                + "Cloudflare Cookie: "
-                                + self.ENDCOLOR
-                                + self.cf_clearance,
-                            )
-                        self.cf_cookie_found = True
-                    if session_cookie and not self.session_cookie_found:
-                        print("Found Session Token!")
-                        # remove the semicolon and '__Secure-next-auth.session-token=' from the string
-                        raw_session_cookie = session_cookie.group(0)
-                        self.session_token = raw_session_cookie.split("=")[1][:-1]
-                        self.session.cookies.set(
-                            "__Secure-next-auth.session-token",
-                            self.session_token,
-                        )
-                        if self.verbose:
-                            print(
-                                self.GREEN
-                                + "Session Token: "
-                                + self.ENDCOLOR
-                                + self.session_token,
-                            )
-                        self.session_cookie_found = True
+                self.session_cookie_found = True
 
     def __detect_user_agent(self, message):
-        if "params" in message:
-            if "headers" in message["params"]:
-                if "user-agent" in message["params"]["headers"]:
-                    # Use regex to get the cookie for cf_clearance=*;
-                    user_agent = message["params"]["headers"]["user-agent"]
-                    self.user_agent = user_agent
-                    self.agent_found = True
+        if (
+            "params" in message
+            and "headers" in message["params"]
+            and "user-agent" in message["params"]["headers"]
+        ):
+            # Use regex to get the cookie for cf_clearance=*;
+            user_agent = message["params"]["headers"]["user-agent"]
+            self.user_agent = user_agent
+            self.agent_found = True
         self.__refresh_headers(
             cf_clearance=self.cf_clearance,
             user_agent=self.user_agent,
@@ -670,8 +704,10 @@ class Chatbot:
 
     def __refresh_headers(self, cf_clearance, user_agent):
         del self.session.cookies["cf_clearance"]
+        # del self.session.cookies["_puid"]
         self.session.headers.clear()
         self.session.cookies.set("cf_clearance", cf_clearance)
+        # self.session.cookies.set("_puid", puid_cookie)
         self.session.headers.update(
             {
                 "Accept": "text/event-stream",
@@ -691,7 +727,7 @@ class Chatbot:
         :param num: The number of messages to rollback
         :return: None
         """
-        for i in range(num):
+        for _ in range(num):
             self.conversation_id = self.conversation_id_prev_queue.pop()
             self.parent_id = self.parent_id_prev_queue.pop()
 
@@ -710,15 +746,7 @@ def get_input(prompt):
             break
         lines.append(line)
 
-    # Join the lines, separated by newlines, and store the result
-    user_input = "\n".join(lines)
-
-    # Return the input
-    return user_input
-
-
-from os import getenv
-from os.path import exists
+    return "\n".join(lines)
 
 
 def configure():
