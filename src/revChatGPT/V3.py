@@ -5,6 +5,7 @@ import argparse
 import json
 import os
 import sys
+import urllib
 
 import requests
 import tiktoken
@@ -46,56 +47,68 @@ class Chatbot:
                 "https": self.proxy,
             }
             self.session.proxies = proxies
-        self.conversation: list = [
-            {
-                "role": "system",
-                "content": system_prompt,
-            },
-        ]
+        self.conversation: dict = {
+            "default": [
+                {
+                    "role": "system",
+                    "content": system_prompt,
+                },
+            ],
+        }
         self.system_prompt = system_prompt
         self.max_tokens = max_tokens
         self.temperature = temperature
         self.top_p = top_p
         self.reply_count = reply_count
 
-        initial_conversation = "\n".join([x["content"] for x in self.conversation])
+        initial_conversation = "\n".join(
+            [x["content"] for x in self.conversation["default"]],
+        )
         if len(ENCODER.encode(initial_conversation)) > self.max_tokens:
             raise Exception("System prompt is too long")
 
-    def __add_to_conversation(self, message: str, role: str):
+    def add_to_conversation(self, message: str, role: str, convo_id: str = "default"):
         """
         Add a message to the conversation
         """
-        self.conversation.append({"role": role, "content": message})
+        self.conversation[convo_id].append({"role": role, "content": message})
 
-    def __truncate_conversation(self):
+    def __truncate_conversation(self, convo_id: str = "default"):
         """
         Truncate the conversation
         """
         while True:
-            full_conversation = "\n".join([x["content"] for x in self.conversation])
+            full_conversation = "\n".join(
+                [x["content"] for x in self.conversation[convo_id]],
+            )
             if (
                 len(ENCODER.encode(full_conversation)) > self.max_tokens
-                and len(self.conversation) > 1
+                and len(self.conversation[convo_id]) > 1
             ):
                 # Don't remove the first message
-                self.conversation.pop(1)
+                self.conversation[convo_id].pop(1)
             else:
                 break
 
-    def ask_stream(self, prompt: str, role: str = "user", **kwargs) -> str:
+    def ask_stream(
+        self,
+        prompt: str,
+        role: str = "user",
+        convo_id: str = "default",
+        **kwargs,
+    ) -> str:
         """
         Ask a question
         """
-        self.__add_to_conversation(prompt, "user")
-        self.__truncate_conversation()
+        self.add_to_conversation(prompt, "user", convo_id=convo_id)
+        self.__truncate_conversation(convo_id=convo_id)
         # Get response
         response = self.session.post(
             "https://api.openai.com/v1/chat/completions",
             headers={"Authorization": f"Bearer {kwargs.get('api_key', self.api_key)}"},
             json={
                 "model": self.engine,
-                "messages": self.conversation,
+                "messages": self.conversation[convo_id],
                 "stream": True,
                 # kwargs
                 "temperature": kwargs.get("temperature", self.temperature),
@@ -131,29 +144,34 @@ class Chatbot:
                 content = delta["content"]
                 full_response += content
                 yield content
-        self.__add_to_conversation(full_response, response_role)
+        self.add_to_conversation(full_response, response_role, convo_id=convo_id)
 
-    def ask(self, prompt: str, role: str = "user", **kwargs):
+    def ask(self, prompt: str, role: str = "user", convo_id: str = "default", **kwargs):
         """
         Non-streaming ask
         """
-        response = self.ask_stream(prompt, role, **kwargs)
+        response = self.ask_stream(
+            prompt=prompt,
+            role=role,
+            convo_id=convo_id,
+            **kwargs,
+        )
         full_response: str = "".join(response)
         return full_response
 
-    def rollback(self, n: int = 1):
+    def rollback(self, n: int = 1, convo_id: str = "default"):
         """
         Rollback the conversation
         """
         for _ in range(n):
-            self.conversation.pop()
+            self.conversation[convo_id].pop()
 
-    def reset(self):
+    def reset(self, convo_id: str = "default", system_prompt: str = None):
         """
         Reset the conversation
         """
-        self.conversation = [
-            {"role": "system", "content": self.system_prompt},
+        self.conversation[convo_id] = [
+            {"role": "system", "content": system_prompt or self.system_prompt},
         ]
 
     def save(self, file: str):
@@ -176,14 +194,14 @@ class Chatbot:
         except FileNotFoundError:
             print(f"Error: {file} does not exist")
 
-    def print_config(self):
+    def print_config(self, convo_id: str = "default"):
         """
         Prints the current configuration
         """
         print(
             f"""
 ChatGPT Configuration:
-  Messages:         {len(self.conversation)} / {self.max_tokens}
+  Messages:         {len(self.conversation[convo_id])} / {self.max_tokens}
   Engine:           {self.engine}
   Temperature:      {self.temperature}
   Top_p:            {self.top_p}
@@ -214,7 +232,7 @@ Config Commands:
   """,
         )
 
-    def handle_commands(self, input: str) -> bool:
+    def handle_commands(self, input: str, convo_id: str = "default") -> bool:
         """
         Handle chatbot commands
         """
@@ -224,19 +242,21 @@ Config Commands:
         elif command == "!exit":
             exit()
         elif command == "!reset":
-            self.reset()
+            self.reset(convo_id=convo_id)
             print("\nConversation has been reset")
         elif command == "!config":
-            self.print_config()
+            self.print_config(convo_id=convo_id)
         elif command == "!rollback":
-            self.rollback(int(value[0]))
+            self.rollback(int(value[0]), convo_id=convo_id)
             print(f"\nRolled back by {value[0]} messages")
         elif command == "!save":
             self.save(value[0])
             print(f"\nConversation has been saved to {value[0]}")
         elif command == "!load":
             self.load(value[0])
-            print(f"\n{len(self.conversation)} messages loaded from {value[0]}")
+            print(
+                f"\n{len(self.conversation[convo_id])} messages loaded from {value[0]}",
+            )
         elif command == "!temperature":
             self.temperature = float(value[0])
             print(f"\nTemperature set to {value[0]}")
@@ -311,6 +331,11 @@ def main():
         default=1,
         help="Number of replies for each prompt",
     )
+    parser.add_argument(
+        "--enable-internet",
+        action="store_true",
+        help="Allow ChatGPT to search the internet",
+    )
     args = parser.parse_args()
     # Initialize chatbot
     chatbot = Chatbot(
@@ -321,6 +346,72 @@ def main():
         top_p=args.top_p,
         reply_count=args.reply_count,
     )
+    # Check if internet is enabled
+    if args.enable_internet:
+        chatbot.system_prompt = """
+        You are ChatGPT, an AI assistant that can access the internet. Internet search results will be sent from the system in JSON format.
+        Respond conversationally and cite your sources via a URL at the end of your message.
+        """
+        chatbot.reset(
+            convo_id="search",
+            system_prompt='For given prompts, summarize it to fit the style of a search query to a search engine. If the prompt cannot be answered by an internet search, is a standalone statement, is a creative task, is directed at a person, or does not make sense, type "none". DO NOT TRY TO RESPOND CONVERSATIONALLY. DO NOT TALK ABOUT YOURSELF. IF THE PROMPT IS DIRECTED AT YOU, TYPE "none".',
+        )
+        chatbot.add_to_conversation(
+            message="What is the capital of France?",
+            role="user",
+            convo_id="search",
+        )
+        chatbot.add_to_conversation(
+            message="Capital of France",
+            role="assistant",
+            convo_id="search",
+        )
+        chatbot.add_to_conversation(
+            message="Who are you?",
+            role="user",
+            convo_id="search",
+        )
+        chatbot.add_to_conversation(message="none", role="assistant", convo_id="search")
+        chatbot.add_to_conversation(
+            message="Write an essay about the history of the United States",
+            role="user",
+            convo_id="search",
+        )
+        chatbot.add_to_conversation(
+            message="none",
+            role="assistant",
+            convo_id="search",
+        )
+        chatbot.add_to_conversation(
+            message="What is the best way to cook a steak?",
+            role="user",
+            convo_id="search",
+        )
+        chatbot.add_to_conversation(
+            message="How to cook a steak",
+            role="assistant",
+            convo_id="search",
+        )
+        chatbot.add_to_conversation(
+            message="Hello world",
+            role="user",
+            convo_id="search",
+        )
+        chatbot.add_to_conversation(
+            message="none",
+            role="assistant",
+            convo_id="search",
+        )
+        chatbot.add_to_conversation(
+            message="Who is the current president of the United States?",
+            role="user",
+            convo_id="search",
+        )
+        chatbot.add_to_conversation(
+            message="United States president",
+            role="assistant",
+            convo_id="search",
+        )
     session = create_session()
     completer = create_completer(
         [
@@ -350,11 +441,39 @@ def main():
             continue
         print()
         print("ChatGPT: ", flush=True)
-        if args.no_stream:
-            print(chatbot.ask(prompt, "user"))
+        if args.enable_internet:
+            query = chatbot.ask(
+                f'This is a prompt from a user to a chatbot: "{prompt}". Respond with "none" if it is directed at the chatbot or cannot be answered by an internet search. Otherwise, respond with a possible search query to a search engine. Do not write any additional text. Make it as minimal as possible',
+                convo_id="search",
+                temperature=0.0,
+            ).strip()
+            print("Searching for: ", query, "")
+            # Get search results
+            if query == "none":
+                search_results = '{"results": "No search results"}'
+            else:
+                search_results = requests.post(
+                    url="https://ddg-api.herokuapp.com/search",
+                    json={"query": query, "limit": 3},
+                    timeout=10,
+                ).text
+            print(json.dumps(json.loads(search_results), indent=4))
+            chatbot.add_to_conversation(
+                "Search results:" + search_results,
+                "system",
+                convo_id="default",
+            )
+            if args.no_stream:
+                print(chatbot.ask(prompt, "user", convo_id="default"))
+            else:
+                for query in chatbot.ask_stream(prompt):
+                    print(query, end="", flush=True)
         else:
-            for response in chatbot.ask_stream(prompt):
-                print(response, end="", flush=True)
+            if args.no_stream:
+                print(chatbot.ask(prompt, "user"))
+            else:
+                for query in chatbot.ask_stream(prompt):
+                    print(query, end="", flush=True)
         print()
 
 
