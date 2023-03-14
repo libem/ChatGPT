@@ -16,16 +16,17 @@ Reverse Engineered ChatGPT API by OpenAI. Extensible for chatbots etc.
 <summary>
 
 # V1 Standard ChatGPT
-> Uses `chat.openai.com`
-> - Free
+> Update 2023/03/10 11:00AM - Everything works
+> > 3:35 PM - Rate limit at 5 requests / 10 seconds due to small server (I ran out of budget.)
+
+> ### [Privacy policy](https://github.com/acheong08/ChatGPT/blob/main/PRIVACY.md)
+> <br>
+>
+> #### [Discussion regarding data collection](https://github.com/acheong08/ChatGPT/discussions/1147)
+
+> :warning: **Avoid untrusted servers**. It was discovered today that access tokens can also be used to call the paid API. If your token is logged, it could be easily abused and cost you money.
 
 </summary>
-
-> Proxy server Rate limit: 15 requests per 10 seconds (per IP)
->
-> OpenAI rate limit: 50 requests per hour on free accounts. You can get around it with multi-account cycling
->
-> Plus accounts has around 150 requests per hour rate limit
 
 ## Configuration
 
@@ -148,7 +149,7 @@ Refer to the [wiki](https://github.com/acheong08/ChatGPT/wiki/V1) for advanced d
 
 # V3 Official Chat API
 > Recently released by OpenAI
-> - Costs money
+> - Paid
 
 </summary>
 
@@ -166,8 +167,8 @@ Get API key from https://platform.openai.com/account/api-keys
 Type '!help' to show a full list of commands
 Press Esc followed by Enter or Alt+Enter to send a message.
 
-usage: V3.py [-h] --api_key API_KEY [--temperature TEMPERATURE] [--no_stream] [--base_prompt BASE_PROMPT]
-             [--proxy PROXY] [--top_p TOP_P] [--reply_count REPLY_COUNT] [--enable-internet]
+usage: V3.py [-h] --api_key API_KEY [--temperature TEMPERATURE] [--no_stream] [--base_prompt BASE_PROMPT] [--proxy PROXY] [--top_p TOP_P]
+             [--reply_count REPLY_COUNT] [--enable_internet] [--config CONFIG] [--submit_key SUBMIT_KEY]
 
 options:
   -h, --help            show this help message and exit
@@ -181,7 +182,10 @@ options:
   --top_p TOP_P         Top p for response
   --reply_count REPLY_COUNT
                         Number of replies for each prompt
-  --enable-internet     Allow ChatGPT to access the internet (beta)
+  --enable_internet     Allow ChatGPT to search the internet
+  --config CONFIG       Path to V3 config json file
+  --submit_key SUBMIT_KEY
+                        Custom submit key for chatbot. For more information on keys, see https://python-prompt-toolkit.readthedocs.io/en/stable/pages/advanced_topics/key_bindings.html#list-of-special-keys
 ```
 
 ## Developer API
@@ -202,8 +206,6 @@ for data in chatbot.ask("Hello world"):
 ```
 
 </details>
-
-
 
 # Awesome ChatGPT
 

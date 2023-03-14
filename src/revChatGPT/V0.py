@@ -6,6 +6,7 @@ import json
 import os
 import sys
 from datetime import date
+from typing import NoReturn
 
 import openai
 import tiktoken
@@ -22,7 +23,7 @@ def get_max_tokens(prompt: str) -> int:
     return 4000 - len(ENCODER.encode(prompt))
 
 
-def remove_suffix(input_string, suffix):
+def remove_suffix(input_string: str, suffix: str) -> str:
     """
     Remove suffix from string (Support for Python 3.8)
     """
@@ -46,8 +47,8 @@ class Chatbot:
         """
         Initialize Chatbot with API key (from https://platform.openai.com/account/api-keys)
         """
-        openai.api_key = api_key or os.environ.get("OPENAI_API_KEY")
-        openai.proxy = proxy or os.environ.get("OPENAI_API_PROXY")
+        self.api_key = api_key or os.environ.get("OPENAI_API_KEY")
+        self.proxy = proxy or os.environ.get("OPENAI_API_PROXY")
         self.conversations = Conversation()
         self.prompt = Prompt(buffer=buffer)
         self.engine = engine or ENGINE
@@ -61,6 +62,8 @@ class Chatbot:
         """
         Get the completion function
         """
+        openai.api_key = self.api_key
+        openai.proxy = self.proxy
         return openai.Completion.create(
             engine=self.engine,
             prompt=prompt,
@@ -210,6 +213,8 @@ class AsyncChatbot(Chatbot):
         """
         Get the completion function
         """
+        openai.api_key = self.api_key
+        openai.proxy = self.proxy
         return await openai.Completion.acreate(
             engine=self.engine,
             prompt=prompt,
@@ -380,7 +385,7 @@ class Conversation:
             self.conversations = json.loads(f.read())
 
 
-def main():
+def main() -> NoReturn:
     print(
         """
     ChatGPT - GPT-3 Chatbot
